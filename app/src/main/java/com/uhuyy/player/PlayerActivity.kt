@@ -83,6 +83,7 @@ import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -241,16 +242,14 @@ class PlayerActivity : ComponentActivity() {
         inPip = isInPictureInPictureMode
     }
 
-    // ---- Kunci anak: screen pinning bawaan Android ----
+    // Kunci kontrol di dalam player saja; jangan aktifkan Android screen pinning.
     private fun lock() {
         locked = true
-        runCatching { startLockTask() }
         updatePip()
     }
 
     private fun unlock() {
         locked = false
-        runCatching { stopLockTask() }
         updatePip()
     }
 
@@ -309,7 +308,6 @@ class PlayerActivity : ComponentActivity() {
             val d = player.duration
             val t = (player.currentPosition + ms).coerceAtLeast(0L)
             player.seekTo(if (d > 0) t.coerceAtMost(d) else t)
-            say(if (ms > 0) "+${ms / 1000} dtk" else "−${-ms / 1000} dtk")
         }
 
         BackHandler(enabled = locked) { }
@@ -445,7 +443,6 @@ class PlayerActivity : ComponentActivity() {
                                     }
                                     if (timedOut) {
                                         unlock()
-                                        say("Kunci dibuka")
                                     }
                                 }
                             },
@@ -475,9 +472,9 @@ class PlayerActivity : ComponentActivity() {
                                 else player.seekToPreviousMediaItem()
                                 uiTick++
                             }
-                            Big("−5") { seekBy(-5000); uiTick++ }
+                            Big("⏪") { seekBy(-5000); uiTick++ }
                             Big(if (playing) "⏸" else "▶") { toggle(); uiTick++ }
-                            Big("+5") { seekBy(5000); uiTick++ }
+                            Big("⏩") { seekBy(5000); uiTick++ }
                             Big("⏭") { player.seekToNextMediaItem(); uiTick++ }
                         }
 

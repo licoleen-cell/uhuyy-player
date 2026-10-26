@@ -35,6 +35,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
@@ -90,9 +91,24 @@ internal object ThemeState {
         AppTheme("Oranye Senja", Color(0xFF15100A), Color(0xFF221A10), Color(0xFFFFA13D), Color(0xFFB3A28C), Color(0xFFFFF1E0))
     )
     var idx by mutableIntStateOf(0)
+    var wallpaper by mutableStateOf<String?>(null)
+    var overlay by mutableStateOf(0.38f)
     val cur: AppTheme get() = all[idx]
     fun load(ctx: Context) {
-        idx = ctx.getSharedPreferences("pos", Context.MODE_PRIVATE).getInt("theme", 0).coerceIn(0, all.lastIndex)
+        val prefs = ctx.getSharedPreferences("pos", Context.MODE_PRIVATE)
+        idx = prefs.getInt("theme", 0).coerceIn(0, all.lastIndex)
+        wallpaper = prefs.getString("wallpaper_uri", null)
+        overlay = prefs.getFloat("wallpaper_overlay", 0.38f).coerceIn(0f, 0.85f)
+    }
+    fun setWallpaper(ctx: Context, uri: Uri?) {
+        wallpaper = uri?.toString()
+        ctx.getSharedPreferences("pos", Context.MODE_PRIVATE).edit()
+            .putString("wallpaper_uri", wallpaper).apply()
+    }
+    fun setOverlay(ctx: Context, value: Float) {
+        overlay = value.coerceIn(0f, 0.85f)
+        ctx.getSharedPreferences("pos", Context.MODE_PRIVATE).edit()
+            .putFloat("wallpaper_overlay", overlay).apply()
     }
     fun set(ctx: Context, i: Int) {
         idx = i
@@ -136,8 +152,21 @@ private fun fmtSize(b: Long): String = when {
 
 private fun loadLib(ctx: Context): Lib {
     val list = ArrayList<Vid>()
-    val proj = arrayOf(MediaStore.Video.Media._ID, MediaStore.Video.Media.DISPLAY_NAME, MediaStore.Video.Media.DURATION, MediaStore.Video.Media.SIZE, MediaStore.Video.Media.BUCKET_DISPLAY_NAME, MediaStore.Video.Media.DATE_ADDED)
-    ctx.contentResolver.query(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, proj, null, null, "${MediaStore.Video.Media.DATE_ADDED} DESC")?.use { c ->
+    val proj = arrayOf(
+        MediaStore.Video.Media._ID,
+        MediaStore.Video.Media.DISPLAY_NAME,
+        MediaStore.Video.Media.DURATION,
+        MediaStore.Video.Media.SIZE,
+        MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
+        MediaStore.Video.Media.DATE_ADDED
+    )
+    ctx.contentResolver.query(
+        MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+        proj,
+        null,
+        null,
+        "${MediaStore.Video.Media.DATE_ADDED} DESC"
+    )?.use { c ->
         val iId = c.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
         val iName = c.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
         val iDur = c.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
@@ -196,6 +225,12 @@ private fun Library() {
         mutableStateOf(ContextCompat.checkSelfPermission(ctx, perm) == PackageManager.PERMISSION_GRANTED)
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
+    val wallpaperPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching { ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            ThemeState.setWallpaper(ctx, uri)
+        }
+    }
     var refresh by remember { mutableIntStateOf(0) }
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {
@@ -210,9 +245,19 @@ private fun Library() {
     }
     val loader = remember { ImageLoader.Builder(ctx).components { add(VideoFrameDecoder.Factory()) }.build() }
 
-    Surface(color = Bg, modifier = Modifier.fillMaxSize()) {
-        val l = lib
-        when {
+    Surface(color = Color.Transparent, modifier = Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().background(Bg)) {
+            ThemeState.wallpaper?.let { uri ->
+                AsyncImage(
+                    model = uri,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = ThemeState.overlay)))
+            }
+            val l = lib
+            when {
             !granted -> Column(
                 Modifier.fillMaxSize().padding(24.dp),
                 verticalArrangement = Arrangement.Center,
@@ -223,13 +268,14 @@ private fun Library() {
                 Button(onClick = { launcher.launch(perm) }) { Text("Izinkan") }
             }
             l == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Memuat video...", color = Mute) }
-            else -> Content(l, loader)
+            else -> Content(l, loader, wallpaperPicker)
+            }
         }
     }
 }
 
 @Composable
-private fun Content(lib: Lib, loader: ImageLoader) {
+private fun Content(lib: Lib, loader: ImageLoader, wallpaperPicker: androidx.activity.compose.ManagedActivityResultLauncher<Array<String>, Uri?>) {
     val ctx = LocalContext.current
     var folder by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
@@ -257,6 +303,20 @@ private fun Content(lib: Lib, loader: ImageLoader) {
                     title = { Text("Pilih tema", color = Txt) },
                     text = {
                         Column {
+                            TextButton(onClick = { wallpaperPicker.launch(arrayOf("image/*")) }) {
+                                Text(if (ThemeState.wallpaper == null) "Pilih foto wallpaper" else "Ganti foto wallpaper", color = Acc)
+                            }
+                            if (ThemeState.wallpaper != null) {
+                                TextButton(onClick = { ThemeState.setWallpaper(ctx, null) }) {
+                                    Text("Hapus wallpaper", color = Mute)
+                                }
+                                Text("Gelap overlay: ${(ThemeState.overlay * 100).toInt()}%", color = Txt)
+                                Slider(
+                                    value = ThemeState.overlay,
+                                    onValueChange = { ThemeState.setOverlay(ctx, it) },
+                                    valueRange = 0f..0.85f
+                                )
+                            }
                             ThemeState.all.forEachIndexed { i, th ->
                                 Row(
                                     Modifier.fillMaxWidth()
