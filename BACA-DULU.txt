@@ -1,0 +1,17 @@
+UHUYY PLAYER - cara dapetin APK (tanpa Android Studio)
+
+1. Buka github.com, login, buat repo baru (Private juga boleh).
+2. Upload SEMUA isi folder ini (drag folder/isi folder ke halaman repo, lalu Commit).
+   Pastikan folder tersembunyi ".github" ikut ke-upload.
+   Kalau nggak ikut: Add file > Create new file, nama file:
+   .github/workflows/build.yml  lalu paste isi file build.yml dari ZIP ini.
+3. Buka tab Actions. Tunggu "Build APK" selesai (centang hijau, sekitar 5-10 menit).
+4. Klik run-nya, scroll ke bagian Artifacts, download "UhuyyPlayer-debug-apk".
+5. Ekstrak ZIP-nya, kirim app-debug.apk ke HP, install.
+
+Ganti nama aplikasi: app/src/main/res/values/strings.xml (isi app_name).
+Kalau build gagal (silang merah): buka run-nya, klik langkah yang merah, screenshot log-nya.
+
+TAMBAHAN (versi Uhuyy):
+- Nama app: Uhuyy Player. Icon: foto kartun (app/src/main/res/drawable-nodpi/ic_launcher_fg.png).
+- Ganti tema: buka app > tombol "Tema" di pojok kanan atas daftar video. Ada 7 tema, tersimpan otomatis.
