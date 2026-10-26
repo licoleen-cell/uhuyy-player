@@ -136,15 +136,14 @@ private fun fmtSize(b: Long): String = when {
 
 private fun loadLib(ctx: Context): Lib {
     val list = ArrayList<Vid>()
-    val m = MediaStore.Video.Media
-    val proj = arrayOf(m._ID, m.DISPLAY_NAME, m.DURATION, m.SIZE, m.BUCKET_DISPLAY_NAME, m.DATE_ADDED)
-    ctx.contentResolver.query(m.EXTERNAL_CONTENT_URI, proj, null, null, "${m.DATE_ADDED} DESC")?.use { c ->
-        val iId = c.getColumnIndexOrThrow(m._ID)
-        val iName = c.getColumnIndexOrThrow(m.DISPLAY_NAME)
-        val iDur = c.getColumnIndexOrThrow(m.DURATION)
-        val iSize = c.getColumnIndexOrThrow(m.SIZE)
-        val iBucket = c.getColumnIndexOrThrow(m.BUCKET_DISPLAY_NAME)
-        val iAdded = c.getColumnIndexOrThrow(m.DATE_ADDED)
+    val proj = arrayOf(MediaStore.Video.Media._ID, MediaStore.Video.Media.DISPLAY_NAME, MediaStore.Video.Media.DURATION, MediaStore.Video.Media.SIZE, MediaStore.Video.Media.BUCKET_DISPLAY_NAME, MediaStore.Video.Media.DATE_ADDED)
+    ctx.contentResolver.query(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, proj, null, null, "${MediaStore.Video.Media.DATE_ADDED} DESC")?.use { c ->
+        val iId = c.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
+        val iName = c.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
+        val iDur = c.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
+        val iSize = c.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+        val iBucket = c.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
+        val iAdded = c.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED)
         while (c.moveToNext()) {
             list.add(
                 Vid(
