@@ -5,6 +5,12 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.media.MediaMetadataRetriever
+import android.util.LruCache
+import android.util.Size
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -13,7 +19,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,98 +38,212 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalView
-import androidx.core.view.WindowCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import coil.ImageLoader
-import coil.compose.AsyncImage
-import coil.decode.VideoFrameDecoder
-import coil.request.ImageRequest
-import coil.request.videoFrameMillis
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
+import java.io.File
+import java.io.FileOutputStream
 
-internal class AppTheme(
-    val name: String, val bg: Color, val panel: Color, val acc: Color,
-    val mute: Color, val txt: Color, val light: Boolean = false
-)
+// Warna tetap (tema warna sudah dibuang). Latar bisa diganti foto dari galeri.
+internal val Accent = Color(0xFF4FB0FF)
+private val BaseBg = Color(0xFF0C0F14)
+private val Panel = Color(0xAA161B23)
+private val DialogBg = Color(0xFF161B23)
+private val Mute = Color(0xFFB4BCC8)
+private val Txt = Color.White
+private const val ALL = "\u0000all"
 
+// Simpan foto latar: dikecilkan max ~2400px lalu disimpan di folder app,
+// jadi tetap ada walau foto aslinya dihapus dari galeri.
 internal object ThemeState {
-    val all = listOf(
-        AppTheme("Gelap Biru", Color(0xFF0C0F14), Color(0xFF161B23), Color(0xFF4FB0FF), Color(0xFF8A94A4), Color(0xFFE9EDF2)),
-        AppTheme("AMOLED Hitam", Color(0xFF000000), Color(0xFF0F0F0F), Color(0xFF00E676), Color(0xFF8C8C8C), Color(0xFFFFFFFF)),
-        AppTheme("Terang", Color(0xFFF6F7F9), Color(0xFFFFFFFF), Color(0xFF1E88E5), Color(0xFF6B7280), Color(0xFF111827), true),
-        AppTheme("Ungu Neon", Color(0xFF100B1F), Color(0xFF1A1330), Color(0xFFB388FF), Color(0xFF9E92B8), Color(0xFFF1EAFF)),
-        AppTheme("Merah Marun", Color(0xFF140A0C), Color(0xFF221114), Color(0xFFFF5A6E), Color(0xFFB09095), Color(0xFFFBEAEC)),
-        AppTheme("Hijau Hutan", Color(0xFF08120D), Color(0xFF10201A), Color(0xFF4ADE80), Color(0xFF8DA89A), Color(0xFFE6F4EC)),
-        AppTheme("Oranye Senja", Color(0xFF15100A), Color(0xFF221A10), Color(0xFFFFA13D), Color(0xFFB3A28C), Color(0xFFFFF1E0))
-    )
-    var idx by mutableIntStateOf(0)
-    var wallpaper by mutableStateOf<String?>(null)
-    var overlay by mutableStateOf(0.38f)
-    val cur: AppTheme get() = all[idx]
-    fun load(ctx: Context) {
-        val prefs = ctx.getSharedPreferences("pos", Context.MODE_PRIVATE)
-        idx = prefs.getInt("theme", 0).coerceIn(0, all.lastIndex)
-        wallpaper = prefs.getString("wallpaper_uri", null)
-        overlay = prefs.getFloat("wallpaper_overlay", 0.38f).coerceIn(0f, 0.85f)
+    var bright by mutableFloatStateOf(1f)
+    var bg by mutableStateOf<ImageBitmap?>(null)
+
+    private fun file(ctx: Context) = File(ctx.filesDir, "bg.jpg")
+
+    fun loadPrefs(ctx: Context) {
+        bright = ctx.getSharedPreferences("pos", Context.MODE_PRIVATE)
+            .getFloat("bright", 1f).coerceIn(0.2f, 1.6f)
     }
-    fun setWallpaper(ctx: Context, uri: Uri?) {
-        wallpaper = uri?.toString()
-        ctx.getSharedPreferences("pos", Context.MODE_PRIVATE).edit()
-            .putString("wallpaper_uri", wallpaper).apply()
+
+    fun saveBright(ctx: Context) {
+        ctx.getSharedPreferences("pos", Context.MODE_PRIVATE).edit().putFloat("bright", bright).apply()
     }
-    fun setOverlay(ctx: Context, value: Float) {
-        overlay = value.coerceIn(0f, 0.85f)
-        ctx.getSharedPreferences("pos", Context.MODE_PRIVATE).edit()
-            .putFloat("wallpaper_overlay", overlay).apply()
+
+    private fun readFile(ctx: Context): ImageBitmap? {
+        val f = file(ctx)
+        if (!f.exists()) return null
+        return runCatching { BitmapFactory.decodeFile(f.path)?.asImageBitmap() }.getOrNull()
     }
-    fun set(ctx: Context, i: Int) {
-        idx = i
-        ctx.getSharedPreferences("pos", Context.MODE_PRIVATE).edit().putInt("theme", i).apply()
+
+    suspend fun loadImage(ctx: Context) {
+        val b = withContext(Dispatchers.IO) { readFile(ctx) }
+        bg = b
+    }
+
+    // Baca foto dari galeri jadi Bitmap (maks ~2400 px) buat layar atur posisi.
+    suspend fun decodeUri(ctx: Context, uri: Uri): Bitmap? = withContext(Dispatchers.IO) {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 28) {
+                val src = ImageDecoder.createSource(ctx.contentResolver, uri)
+                ImageDecoder.decodeBitmap(src) { dec, info, _ ->
+                    val m = maxOf(info.size.width, info.size.height)
+                    var s = 1
+                    while (m / s > 2400) s *= 2
+                    dec.setTargetSampleSize(s)
+                    dec.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE)
+                }
+            } else {
+                legacyDecode(ctx, uri)
+            }
+        }.getOrNull()
+    }
+
+    // Simpan potongan foto (sx, sy, sw, sh = area di foto asli) yang dipilih di layar atur posisi.
+    // Hasil disimpan seukuran area Home (maks 1440 px lebar), jadi persis yang terlihat saat diatur.
+    suspend fun saveCrop(ctx: Context, src: Bitmap, sx: Float, sy: Float, sw: Float, sh: Float): Boolean {
+        val ok = withContext(Dispatchers.IO) {
+            runCatching {
+                val l = sx.roundToInt().coerceIn(0, src.width - 1)
+                val tp = sy.roundToInt().coerceIn(0, src.height - 1)
+                val r = (sx + sw).roundToInt().coerceIn(l + 1, src.width)
+                val b = (sy + sh).roundToInt().coerceIn(tp + 1, src.height)
+                val outW = (r - l).coerceIn(1, 1440)
+                val outH = (outW.toFloat() * (b - tp) / (r - l)).roundToInt().coerceAtLeast(1)
+                val out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+                val cv = android.graphics.Canvas(out)
+                val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+                cv.drawBitmap(src, android.graphics.Rect(l, tp, r, b), android.graphics.Rect(0, 0, outW, outH), paint)
+                FileOutputStream(file(ctx)).use { o -> out.compress(Bitmap.CompressFormat.JPEG, 92, o) }
+                out.recycle()
+                true
+            }.getOrDefault(false)
+        }
+        if (ok) {
+            val b = withContext(Dispatchers.IO) { readFile(ctx) }
+            bg = b
+        }
+        return ok
+    }
+
+    // Android 5-8 (belum ada ImageDecoder)
+    private fun legacyDecode(ctx: Context, uri: Uri): Bitmap {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        var s = 1
+        val m = maxOf(bounds.outWidth, bounds.outHeight)
+        while (m / s > 2400) s *= 2
+        val opts = BitmapFactory.Options().apply { inSampleSize = s }
+        return ctx.contentResolver.openInputStream(uri)!!.use { BitmapFactory.decodeStream(it, null, opts)!! }
+    }
+
+    fun clear(ctx: Context) {
+        file(ctx).delete()
+        bg = null
     }
 }
 
-private val Bg: Color get() = ThemeState.cur.bg
-private val Panel: Color get() = ThemeState.cur.panel
-private val Acc: Color get() = ThemeState.cur.acc
-private val Mute: Color get() = ThemeState.cur.mute
-private val Txt: Color get() = ThemeState.cur.txt
-private const val ALL = "\u0000all"
+// Thumbnail: pakai thumbnail bawaan sistem (di-cache sistem, jauh lebih ringan
+// daripada decode frame video satu-satu). Cache memori 24 MB, maksimal 3 proses sekaligus.
+internal object Thumbs {
+    private val cache = object : LruCache<Long, ImageBitmap>(24 * 1024 * 1024) {
+        override fun sizeOf(key: Long, value: ImageBitmap): Int = value.width * value.height * 4
+    }
+    private val gate = Semaphore(3)
+
+    fun cached(id: Long): ImageBitmap? = cache.get(id)
+
+    suspend fun load(ctx: Context, id: Long): ImageBitmap? {
+        cache.get(id)?.let { return it }
+        val bmp = gate.withPermit { withContext(Dispatchers.IO) { fetch(ctx, id) } } ?: return null
+        val ib = bmp.asImageBitmap()
+        cache.put(id, ib)
+        return ib
+    }
+
+    private fun fetch(ctx: Context, id: Long): Bitmap? {
+        val uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
+        if (Build.VERSION.SDK_INT >= 29) {
+            val b = runCatching { ctx.contentResolver.loadThumbnail(uri, Size(360, 202), null) }.getOrNull()
+            if (b != null) return b
+        } else {
+            @Suppress("DEPRECATION")
+            val b = runCatching {
+                MediaStore.Video.Thumbnails.getThumbnail(ctx.contentResolver, id, MediaStore.Video.Thumbnails.MINI_KIND, null)
+            }.getOrNull()
+            if (b != null) return b
+        }
+        return frame(ctx, uri)
+    }
+
+    // Cadangan kalau thumbnail sistem nggak ada: ambil satu frame lalu kecilin.
+    private fun frame(ctx: Context, uri: Uri): Bitmap? {
+        val r = MediaMetadataRetriever()
+        return try {
+            r.setDataSource(ctx, uri)
+            val raw = r.getFrameAtTime(1_000_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) ?: r.getFrameAtTime(0L)
+            raw?.let { b ->
+                val sc = 360f / maxOf(b.width, b.height)
+                if (sc < 1f) Bitmap.createScaledBitmap(
+                    b, (b.width * sc).toInt().coerceAtLeast(1), (b.height * sc).toInt().coerceAtLeast(1), true
+                ) else b
+            }
+        } catch (e: Throwable) {
+            null
+        } finally {
+            runCatching { r.release() }
+        }
+    }
+}
 
 data class Vid(
     val id: Long,
@@ -137,10 +259,10 @@ data class Vid(
 class Lib(val vids: List<Vid>, val pos: Map<Long, Long>)
 
 internal fun fmtTime(ms: Long): String {
-    val t = (ms / 1000).coerceAtLeast(0)
-    val h = t / 3600
-    val m = (t % 3600) / 60
-    val s = t % 60
+    val tt = (ms / 1000).coerceAtLeast(0)
+    val h = tt / 3600
+    val m = (tt % 3600) / 60
+    val s = tt % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
@@ -152,21 +274,8 @@ private fun fmtSize(b: Long): String = when {
 
 private fun loadLib(ctx: Context): Lib {
     val list = ArrayList<Vid>()
-    val proj = arrayOf(
-        MediaStore.Video.Media._ID,
-        MediaStore.Video.Media.DISPLAY_NAME,
-        MediaStore.Video.Media.DURATION,
-        MediaStore.Video.Media.SIZE,
-        MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
-        MediaStore.Video.Media.DATE_ADDED
-    )
-    ctx.contentResolver.query(
-        MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-        proj,
-        null,
-        null,
-        "${MediaStore.Video.Media.DATE_ADDED} DESC"
-    )?.use { c ->
+    val proj = arrayOf(MediaStore.Video.Media._ID, MediaStore.Video.Media.DISPLAY_NAME, MediaStore.Video.Media.DURATION, MediaStore.Video.Media.SIZE, MediaStore.Video.Media.BUCKET_DISPLAY_NAME, MediaStore.Video.Media.DATE_ADDED)
+    ctx.contentResolver.query(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, proj, null, null, "${MediaStore.Video.Media.DATE_ADDED} DESC")?.use { c ->
         val iId = c.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
         val iName = c.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
         val iDur = c.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
@@ -193,24 +302,23 @@ private fun loadLib(ctx: Context): Lib {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        ThemeState.load(this)
+        ThemeState.loadPrefs(this)
+        Lang.load(this)
         setContent {
-            val t = ThemeState.cur
             val view = LocalView.current
             SideEffect {
-                window.statusBarColor = t.bg.toArgb()
-                window.navigationBarColor = t.bg.toArgb()
+                window.statusBarColor = BaseBg.toArgb()
+                window.navigationBarColor = BaseBg.toArgb()
                 val c = WindowCompat.getInsetsController(window, view)
-                c.isAppearanceLightStatusBars = t.light
-                c.isAppearanceLightNavigationBars = t.light
+                c.isAppearanceLightStatusBars = false
+                c.isAppearanceLightNavigationBars = false
             }
-            val scheme = if (t.light) lightColorScheme(
-                primary = t.acc, background = t.bg, surface = t.panel,
-                onBackground = t.txt, onSurface = t.txt
-            ) else darkColorScheme(
-                primary = t.acc, background = t.bg, surface = t.panel,
-                onBackground = t.txt, onSurface = t.txt
+            val scheme = darkColorScheme(
+                primary = Accent, background = BaseBg, surface = DialogBg,
+                onBackground = Txt, onSurface = Txt
             )
+            val appCtx = LocalContext.current.applicationContext
+            LaunchedEffect(Unit) { ThemeState.loadImage(appCtx) }
             MaterialTheme(colorScheme = scheme) { Library() }
         }
     }
@@ -225,12 +333,6 @@ private fun Library() {
         mutableStateOf(ContextCompat.checkSelfPermission(ctx, perm) == PackageManager.PERMISSION_GRANTED)
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
-    val wallpaperPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            runCatching { ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-            ThemeState.setWallpaper(ctx, uri)
-        }
-    }
     var refresh by remember { mutableIntStateOf(0) }
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {
@@ -240,43 +342,70 @@ private fun Library() {
     }
     LaunchedEffect(Unit) { if (!granted) launcher.launch(perm) }
     var lib by remember { mutableStateOf<Lib?>(null) }
+    var page by remember { mutableIntStateOf(0) }
+    var pending by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(granted, refresh) {
         if (granted) lib = withContext(Dispatchers.IO) { loadLib(ctx) }
     }
-    val loader = remember { ImageLoader.Builder(ctx).components { add(VideoFrameDecoder.Factory()) }.build() }
 
-    Surface(color = Color.Transparent, modifier = Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().background(Bg)) {
-            ThemeState.wallpaper?.let { uri ->
-                AsyncImage(
-                    model = uri,
+    Surface(color = BaseBg, contentColor = Txt, modifier = Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize()) {
+            val img = ThemeState.bg
+            if (img != null) {
+                val b = ThemeState.bright
+                Image(
+                    bitmap = img,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
+                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen },
+                    colorFilter = ColorFilter.colorMatrix(
+                        ColorMatrix(
+                            floatArrayOf(
+                                b, 0f, 0f, 0f, 0f,
+                                0f, b, 0f, 0f, 0f,
+                                0f, 0f, b, 0f, 0f,
+                                0f, 0f, 0f, 1f, 0f
+                            )
+                        )
+                    )
                 )
-                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = ThemeState.overlay)))
+                Box(Modifier.fillMaxSize().background(Color(0x33000000)))
             }
             val l = lib
+            Box(Modifier.fillMaxSize().alpha(if (page == 0) 1f else 0f)) {
             when {
-            !granted -> Column(
-                Modifier.fillMaxSize().padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("Aplikasi butuh izin baca video supaya bisa nampilin semua video di HP lu. Nggak ada yang dikirim ke internet.", color = Mute)
-                Spacer(Modifier.height(16.dp))
-                Button(onClick = { launcher.launch(perm) }) { Text("Izinkan") }
+                !granted -> Column(
+                    Modifier.fillMaxSize().padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(t("perm_text"), color = Mute)
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = { launcher.launch(perm) }) { Text(t("allow")) }
+                }
+                l == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(t("loading"), color = Mute) }
+                else -> Content(l) { page = 1 }
             }
-            l == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Memuat video...", color = Mute) }
-            else -> Content(l, loader, wallpaperPicker)
             }
+            if (page != 0) SettingsHost(page, pending, { pending = it }, { page = it })
         }
     }
 }
 
 @Composable
-private fun Content(lib: Lib, loader: ImageLoader, wallpaperPicker: androidx.activity.compose.ManagedActivityResultLauncher<Array<String>, Uri?>) {
+internal fun Pill(label: String, click: () -> Unit) {
+    Text(
+        label, color = Accent, fontSize = 14.sp,
+        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color(0x33FFFFFF))
+            .clickable(onClick = click).padding(horizontal = 14.dp, vertical = 9.dp)
+    )
+}
+
+@Composable
+private fun Content(lib: Lib, onSettings: () -> Unit) {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     var folder by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
     var sort by remember { mutableIntStateOf(0) }
@@ -287,67 +416,24 @@ private fun Content(lib: Lib, loader: ImageLoader, wallpaperPicker: androidx.act
             lib.vids.groupBy { it.bucket }.toList().sortedByDescending { g -> g.second.maxOf { it.added } }
         }
         Column(Modifier.fillMaxSize()) {
-            var showTheme by remember { mutableStateOf(false) }
             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Video", fontSize = 22.sp, modifier = Modifier.weight(1f))
-                Text(
-                    "Tema", color = Acc, fontSize = 14.sp,
-                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Panel)
-                        .clickable { showTheme = true }.padding(horizontal = 12.dp, vertical = 8.dp)
-                )
-            }
-            if (showTheme) {
-                AlertDialog(
-                    onDismissRequest = { showTheme = false },
-                    containerColor = Panel,
-                    title = { Text("Pilih tema", color = Txt) },
-                    text = {
-                        Column {
-                            TextButton(onClick = { wallpaperPicker.launch(arrayOf("image/*")) }) {
-                                Text(if (ThemeState.wallpaper == null) "Pilih foto wallpaper" else "Ganti foto wallpaper", color = Acc)
-                            }
-                            if (ThemeState.wallpaper != null) {
-                                TextButton(onClick = { ThemeState.setWallpaper(ctx, null) }) {
-                                    Text("Hapus wallpaper", color = Mute)
-                                }
-                                Text("Gelap overlay: ${(ThemeState.overlay * 100).toInt()}%", color = Txt)
-                                Slider(
-                                    value = ThemeState.overlay,
-                                    onValueChange = { ThemeState.setOverlay(ctx, it) },
-                                    valueRange = 0f..0.85f
-                                )
-                            }
-                            ThemeState.all.forEachIndexed { i, th ->
-                                Row(
-                                    Modifier.fillMaxWidth()
-                                        .clickable { ThemeState.set(ctx, i); showTheme = false }
-                                        .padding(vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(Modifier.size(22.dp).clip(CircleShape).background(th.acc))
-                                    Spacer(Modifier.width(14.dp))
-                                    Text(
-                                        th.name, color = Txt, modifier = Modifier.weight(1f)
-                                    )
-                                    if (i == ThemeState.idx) Text("\u2713", color = Acc)
-                                }
-                            }
-                        }
-                    },
-                    confirmButton = { TextButton(onClick = { showTheme = false }) { Text("Tutup", color = Acc) } }
-                )
+                Text("Uhuyy Player", fontSize = 22.sp, modifier = Modifier.weight(1f))
+                Box(
+                    Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(Panel).clickable(onClick = onSettings),
+                    contentAlignment = Alignment.Center
+                ) { Icon24(Ic.GEAR, Accent, 22.dp) }
             }
             if (lib.vids.isEmpty()) {
-                Text("Belum ada video di HP ini.", color = Mute, modifier = Modifier.padding(16.dp))
+                Text(t("no_videos"), color = Mute, modifier = Modifier.padding(16.dp))
             }
             LazyColumn(Modifier.fillMaxSize()) {
                 if (lib.vids.isNotEmpty()) {
                     item {
-                        FolderRow("Semua video", lib.vids.size, lib.vids.first().uri, loader) { folder = ALL }
+                        FolderRow(t("all_videos"), lib.vids.size, lib.vids.first().id) { folder = ALL }
                     }
                 }
                 itemsIndexed(groups, key = { _, g -> g.first }) { _, g ->
-                    FolderRow(g.first, g.second.size, g.second.first().uri, loader) { folder = g.first }
+                    FolderRow(g.first, g.second.size, g.second.first().id) { folder = g.first }
                 }
             }
         }
@@ -365,19 +451,20 @@ private fun Content(lib: Lib, loader: ImageLoader, wallpaperPicker: androidx.act
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("←", fontSize = 24.sp, modifier = Modifier.clickable { folder = null; query = "" }.padding(end = 14.dp))
                 Text(
-                    if (folder == ALL) "Semua video" else folder ?: "", fontSize = 18.sp,
+                    if (folder == ALL) t("all_videos") else folder ?: "", fontSize = 18.sp,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
                 )
                 Text(
-                    listOf("Terbaru", "Nama", "Ukuran")[sort], color = Acc, fontSize = 14.sp,
+                    listOf(t("sort_new"), t("sort_name"), t("sort_size"))[sort], color = Accent, fontSize = 14.sp,
                     modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Panel)
                         .clickable { sort = (sort + 1) % 3 }.padding(horizontal = 12.dp, vertical = 8.dp)
                 )
             }
             OutlinedTextField(
                 value = query, onValueChange = { query = it }, singleLine = true,
-                placeholder = { Text("Cari video") },
+                placeholder = { Text(t("search")) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+                    .background(Color(0x66000000), RoundedCornerShape(12.dp))
             )
             LazyColumn(Modifier.fillMaxSize()) {
                 itemsIndexed(shown, key = { _, v -> v.id }) { i, v ->
@@ -393,7 +480,7 @@ private fun Content(lib: Lib, loader: ImageLoader, wallpaperPicker: androidx.act
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box {
-                            Thumb(v.uri, loader, Modifier.size(124.dp, 70.dp))
+                            Thumb(v.id, Modifier.size(124.dp, 70.dp))
                             Text(
                                 fmtTime(v.dur), fontSize = 11.sp, color = Color.White,
                                 modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)
@@ -420,28 +507,35 @@ private fun Content(lib: Lib, loader: ImageLoader, wallpaperPicker: androidx.act
 }
 
 @Composable
-private fun FolderRow(name: String, count: Int, thumb: Uri, loader: ImageLoader, click: () -> Unit) {
+private fun FolderRow(name: String, count: Int, thumbId: Long, click: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = click).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Thumb(thumb, loader, Modifier.size(64.dp, 48.dp))
+        Thumb(thumbId, Modifier.size(64.dp, 48.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(name, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("$count video", color = Mute, fontSize = 12.sp)
+            Text(tf("n_videos", count), color = Mute, fontSize = 12.sp)
         }
     }
 }
 
 @Composable
-private fun Thumb(uri: Uri, loader: ImageLoader, mod: Modifier) {
-    val ctx = LocalContext.current
-    AsyncImage(
-        model = ImageRequest.Builder(ctx).data(uri).videoFrameMillis(1000).build(),
-        imageLoader = loader,
-        contentDescription = null,
-        contentScale = ContentScale.Crop,
-        modifier = mod.clip(RoundedCornerShape(8.dp)).background(Panel)
-    )
+private fun Thumb(id: Long, mod: Modifier) {
+    val ctx = LocalContext.current.applicationContext
+    val img by produceState<ImageBitmap?>(Thumbs.cached(id), id) {
+        if (value == null) {
+            delay(70) // item yang cuma lewat pas di-fling nggak ikut diproses
+            value = Thumbs.load(ctx, id)
+        }
+    }
+    Box(mod.clip(RoundedCornerShape(8.dp)).background(Panel)) {
+        img?.let {
+            Image(
+                bitmap = it, contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
 }

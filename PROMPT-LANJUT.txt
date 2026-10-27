@@ -1,0 +1,13 @@
+Gue Choing. Gue lagi bikin app video player Android offline bernama "Uhuyy Player" (Kotlin + Jetpack Compose + Media3), dibuild lewat GitHub Actions. Lu yang nulis kode, gue yang rancang, uji, dan build.
+
+Gue lampirin ZIP project terbaru. Sebelum ngapa-ngapain, baca dulu HANDOFF.md di dalam ZIP sampai habis: isinya aturan kerja, status tiap ronde, dan spesifikasi lengkap semua yang harus dikerjain. Terus baca semua kode di app/src/main/java/com/uhuyy/player/ (MainActivity.kt, PlayerActivity.kt, Icons.kt, Strings.kt, Settings.kt) dan app/build.gradle.kts.
+
+Aturan penting:
+- Kita kerja per ronde, dan lu cuma mulai ronde berikutnya kalau gue bilang "gas". Ronde yang sudah selesai ada tanda [x] di HANDOFF.md.
+- Ronde yang dikerjain sekarang: RONDE 4 (Musik saja / layanan latar).
+- Tiap ronde selesai: kirim ZIP full terbaru, HANDOFF.md yang sudah diperbarui, dan prompt lanjutan kayak ini. Kalau perubahan ronde itu bisa dilihat visual, kirim juga HTML viewer; kalau cuma bisa dicek di APK, bilang aja dan jangan kirim HTML.
+- Jangan pernah nambah izin INTERNET. APK harus < 100 MB (target < 60 MB). Izin lain cuma yang standar dan aman.
+- Lu nggak bisa compile Android di sini (Google Maven diblokir), jadi cek kodenya teliti sendiri; kalau build gue merah gue kirim lognya.
+- Ngobrol pakai Indonesia santai (gue/lu). Jujur kalau ada yang nggak bisa dilakuin atau berisiko.
+
+Kalau lu paham, ringkas dulu status terakhir proyek dalam beberapa baris, tanya kalau ada yang kurang jelas, lalu tunggu "gas" gue.

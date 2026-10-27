@@ -1,17 +1,51 @@
 UHUYY PLAYER - cara dapetin APK (tanpa Android Studio)
 
-1. Buka github.com, login, buat repo baru (Private juga boleh).
-2. Upload SEMUA isi folder ini (drag folder/isi folder ke halaman repo, lalu Commit).
-   Pastikan folder tersembunyi ".github" ikut ke-upload.
-   Kalau nggak ikut: Add file > Create new file, nama file:
-   .github/workflows/build.yml  lalu paste isi file build.yml dari ZIP ini.
-3. Buka tab Actions. Tunggu "Build APK" selesai (centang hijau, sekitar 5-10 menit).
-4. Klik run-nya, scroll ke bagian Artifacts, download "UhuyyPlayer-debug-apk".
-5. Ekstrak ZIP-nya, kirim app-debug.apk ke HP, install.
+=== A. REPO BARU (paling aman, mulai bersih) ===
+1. Buka github.com, login, buat repo baru (Private boleh). Centang "Add a README" biar repo-nya langsung ada isinya.
+2. Ekstrak ZIP ini di HP/PC.
+3. Bikin file workflow DULU lewat tulisan (jangan lewat upload, karena folder .github yang tersembunyi sering nggak ikut):
+   Add file > Create new file. Di kolom nama ketik persis:
+       .github/workflows/build.yml
+   (ketik garis miring "/" biar jadi folder). Buka build.yml dari ZIP, copy semua isinya, paste, lalu Commit.
+4. Upload sisanya: Add file > Upload files. Pilih semua file dan folder KECUALI folder ".github":
+   app/ , build.gradle.kts , settings.gradle.kts , gradle.properties , .gitignore
+   Kalau di HP nggak bisa upload folder sekaligus: pakai mode "Desktop site" di browser, atau upload per folder.
+   PENTING: file app/uhuyy.jks (kunci tanda tangan) harus ikut keupload.
+5. Tab Actions > tunggu "Build APK" selesai (centang hijau, sekitar 5-10 menit).
+6. Klik run-nya, scroll ke Artifacts, download "UhuyyPlayer-release-apk", ekstrak, install app-release.apk.
+
+=== B. REPO LAMA (yang sudah ada) - update file ===
+Cara paling gampang: ganti/tambah file ini satu-satu (di GitHub: buka file > ikon pensil untuk ganti isi,
+atau Add file > Upload files untuk file baru).
+
+GANTI ISI:
+  .github/workflows/build.yml
+  build.gradle.kts            (yang di paling luar)
+  app/build.gradle.kts
+  app/src/main/java/com/uhuyy/player/MainActivity.kt
+  app/src/main/java/com/uhuyy/player/PlayerActivity.kt
+  app/src/main/java/com/uhuyy/player/Icons.kt
+  (Ronde 3: juga ganti app/build.gradle.kts, sudah masuk daftar di atas)
+TAMBAH BARU:
+  app/src/main/java/com/uhuyy/player/Strings.kt   (Ronde 3)
+  app/src/main/java/com/uhuyy/player/Settings.kt  (Ronde 3)
+  app/proguard-rules.pro
+  app/uhuyy.jks
+  app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+  app/src/main/res/mipmap-nodpi/ic_launcher.png
+HAPUS (WAJIB, kalau nggak build/ikon bermasalah di Android lama):
+  app/src/main/res/mipmap-anydpi/ic_launcher.xml
+  (buka file itu di GitHub > ikon tong sampah / titik tiga > Delete file > Commit)
+
+=== PENTING SEBELUM INSTALL ===
+APK baru ini ditandatangani kunci tetap, beda sama APK debug lama. Jadi UNINSTALL dulu aplikasi
+Uhuyy Player yang lama (foto latar dan posisi terakhir nonton ikut hilang, itu sekali ini aja).
+Build-build berikutnya bisa langsung di-install menimpa tanpa uninstall.
+
+=== KALAU BUILD GAGAL ===
+- Kalau cuma ada artifact "UhuyyPlayer-DEBUG-cadangan-apk": release gagal tapi debug jalan. APK itu lebih berat.
+  Buka run-nya, klik langkah "Build release APK", screenshot/copy log merahnya, kirim ke Claude.
+- Kalau silang merah semua: buka run-nya, klik langkah yang merah, kirim log-nya.
+- Workflow juga otomatis gagal kalau ada izin INTERNET nyelip (app ini harus offline) atau APK > 100 MB.
 
 Ganti nama aplikasi: app/src/main/res/values/strings.xml (isi app_name).
-Kalau build gagal (silang merah): buka run-nya, klik langkah yang merah, screenshot log-nya.
-
-TAMBAHAN (versi Uhuyy):
-- Nama app: Uhuyy Player. Icon: foto kartun (app/src/main/res/drawable-nodpi/ic_launcher_fg.png).
-- Ganti tema: buka app > tombol "Tema" di pojok kanan atas daftar video. Ada 7 tema, tersimpan otomatis.
